@@ -1,0 +1,72 @@
+#!/bin/sh
+
+# arguments/options
+HGI_PROJECT=$1
+SEQSCAPE_PROJECT=$2
+PROJECT_UNIX_GROUP=$3
+HGI_SUBPROJECT=$4
+HGI_PROJECT_DIR=$5
+HGI_VRTRACK_DB=$6
+
+# set default project dir to scratch111 if not specified
+if [ -z $HGI_PROJECT_DIR ]; then 
+    HGI_PROJECT_DIR=/lustre/scratch111/projects
+fi
+
+# set default vrtrack db if not specified 
+if [ -z $HGI_VRTRACK_DB ]; then 
+    HGI_VRTRACK_DB=hgip_vrtrack_mercury_prod
+fi
+
+# print usage and exit with error if required arguments were not provided
+if [ -z $HGI_PROJECT ] || [ -z $SEQSCAPE_PROJECT ] || [ -z $PROJECT_UNIX_GROUP ]; then
+    echo "Usage: $0 <project_shortname> <project_sequencescapeid> <unix group> <subproject> [project_dir] [vrtrack_db]"
+    exit 1
+fi
+
+# validate that HGI_PROJECT is, in fact, an HGI_PROJECT
+GROUP_DN=$(ldapsearch -xLLL '(&(objectClass=posixGroup)(cn='$HGI_PROJECT'))' dn)
+if [ -z "$GROUP_DN" ]; then
+    echo "You asked to setup project $HGI_PROJECT, but that group does not exist. Please create it first."
+    exit 1
+fi
+
+echo "Verified project group for $HGI_PROJECT exists ($GROUP_DN)"
+
+echo "Setting up project $HGI_PROJECT in $HGI_PROJECT_DIR using $HGI_VRTRACK_DB"
+
+if [ ! -z $HGI_SUBPROJECT ]; then
+    echo Subproject is "$HGI_SUBPROJECT"
+fi
+
+echo Sequencescape project is "$SEQSCAPE_PROJECT"
+
+echo Importing study into QC grind
+# import study into qc grind
+pushd ~mercury/src/update_pipeline
+perl ~mercury/src/update_pipeline/update_pipeline.pl -t 9606 -d $HGI_VRTRACK_DB -n "$SEQSCAPE_PROJECT"
+popd
+
+echo Creating project directory
+mkdir -p $HGI_PROJECT_DIR/$HGI_PROJECT
+chown .${PROJECT_UNIX_GROUP} $HGI_PROJECT_DIR/$HGI_PROJECT
+chmod g+sx $HGI_PROJECT_DIR/$HGI_PROJECT
+pushd $HGI_PROJECT_DIR/$HGI_PROJECT
+
+VRPIPE_DIR="vrpipe"
+
+if [ ! -z $HGI_SUBPROJECT ]; then
+    VRPIPE_DIR="vrpipe-$HGI_SUBPROJECT"
+fi
+
+mkdir -p $VRPIPE_DIR/dataroot
+mkdir -p $VRPIPE_DIR/output
+mkdir -p $VRPIPE_DIR/tmp
+
+lfs setstripe -c-1 $VRPIPE_DIR/dataroot
+lfs setstripe -c-1 $VRPIPE_DIR/output
+
+popd
+
+echo setup vrpipe project
+
